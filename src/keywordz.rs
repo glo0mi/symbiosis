@@ -95,7 +95,7 @@ pub enum ControlFlow {
     },
     Else {
         expression: Option<NChild>,
-        body: NChild
+        body: NChild,
     },
     Switch {
         expression: NChild,
@@ -113,7 +113,7 @@ pub enum ControlFlow {
     Do {
         expression: NChild,
         body: NChild,
-    },    
+    },
     For {
         initialization: NChild,
         condition: NChild,
@@ -121,6 +121,6 @@ pub enum ControlFlow {
     },
     Break,
     Continue,
-    Goto(NChild),
+    GoTo(NChild),
     Return,
 }
