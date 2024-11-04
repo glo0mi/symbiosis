@@ -49,10 +49,9 @@ pub enum SymAstNode {
     Enum,
     TypeDef,
     Volatile,
-    // Identifier
     FunctionDefinition {
         type_specifier: NChild,
-        function_name: NChild,
+        function_name: String,
         parameter_list: Vec<NChild>,
         body: NChild,
     },
@@ -78,7 +77,10 @@ pub enum SymAstNode {
     /// Parenthesized expression
     PsExpression(NChild),
     Body(Vec<NChild>),
-    Identifier(Identifier),
+    Identifier {
+        identifier_type: Identifier,
+        name: String,
+    },
 }
 
 enum Identifier {
@@ -106,6 +108,7 @@ pub struct SymAst {
     identifier_map: HashMap<String, Identifier>,
     std_map: HashMap<String, Vec<StdFunction>>,
     root_node: NChild,
+    setup: bool,
 }
 
 impl SymAst {
@@ -114,34 +117,35 @@ impl SymAst {
             identifier_map: HashMap::new(),
             std_map: HashMap::new(),
             root_node: NChild::new(SymAstNode::Body(Vec::new())),
+            setup: true,
         };
     }
-    pub fn initialize_symast(tlines: Vec<Vec<Token>>) -> Self {
-        let mut symast = SymAst::new();
-        // Will make a file later containing stdlib functions, will just add printf now
-        // manually for testing though (for hello world ofc)
-        let printf = StdFunction {
-            identifier: "printf".to_string(),
-            parameters: vec![StdFnParam::Defined(Type::String), StdFnParam::Multi],
-            return_type: Type::Int,
-        };
-        symast.std_map.insert("stdio.h".to_string(), vec![printf]);
-        // Go through tokens and add to tree
-        for line in tlines {
+    /// Function which recursively collects nodes in a block and returns the block when reaching
+    /// the block end (})
+    pub fn read_block(&mut self, block_start: usize, tlines: &Vec<Vec<Token>>) -> Vec<NChild> {
+        let mut block_lines = Vec::new();
+        let mut block_end = false;
+        for li in block_start..tlines.len() {
+            let line = &tlines[li];
             if line.len() == 0 {
                 continue;
             }
+            if self.setup && line[0].token_type != TokenType::Include {
+                self.setup = false;
+            }
             match line[0].token_type {
                 TokenType::Include => {
-                    for stdfn in symast.std_map.get(&line[1].raw).expect("Unknown function!") {
+                    if !self.setup {
+                        panic!("#include statements must be at top of file!!!");
+                    }
+                    for stdfn in self.std_map.get(&line[1].raw).expect("Unknown function!") {
                         let rt;
                         if stdfn.return_type == Type::Void {
                             rt = None;
                         } else {
                             rt = Some(stdfn.return_type.clone());
                         }
-                        symast
-                            .identifier_map
+                        self.identifier_map
                             .insert(stdfn.identifier.clone(), Identifier::Function(rt))
                             .unwrap();
                     }
@@ -149,15 +153,71 @@ impl SymAst {
                 TokenType::Keyword => {
                     if let Some(t) = get_type(&line[0].raw) {
                         // This is either a function def or variable def
-                        // Token 3 will be open paren if function
+                        // Token 3 will be open paren if function and open bracket if array
                         if line[2].raw == "(".to_string() {
                             // Function def
+                            // First get parameter list
+                            let pclose = line.len() - 2;
+                            let mut plist = Vec::new();
+                            for i in (3..pclose).step_by(3) {
+                                let ptype = get_type(&line[i].raw).unwrap();
+                                let pid = &line[i + 1].raw;
+                                plist.push(Box::new(SymAstNode::Identifier {
+                                    identifier_type: Identifier::Variable(ptype),
+                                    name: pid.to_string(),
+                                }));
+                                if line[i + 2].raw != ",".to_string() {
+                                    break;
+                                }
+                            }
+                            // Now define function
+                            let func = SymAstNode::FunctionDefinition {
+                                type_specifier: Box::new(SymAstNode::Type(t)),
+                                function_name: line[1].raw.clone(),
+                                parameter_list: plist,
+                                body: Box::new(SymAstNode::Body(self.read_block(li + 2, tlines))),
+                            };
+                            block_lines.push(Box::new(func));
                         }
                     }
                 }
+                TokenType::SpecialChar(..) => match line[0].raw.as_str() {
+                    "}" => {
+                        block_end = true;
+                    }
+                    "{" => {}
+                    _ => panic!("Do ur job lexer!!"),
+                },
                 _ => {}
             }
+            if block_end {
+                break;
+            }
         }
+        if !block_end {
+            panic!();
+        }
+        return block_lines;
+    }
+    pub fn initialize_symast(tlines: Vec<Vec<Token>>) -> Self {
+        let mut std_map = HashMap::new();
+        // Will make a file later containing stdlib functions, will just add printf now
+        // manually for testing though (for hello world ofc)
+        let printf = StdFunction {
+            identifier: "printf".to_string(),
+            parameters: vec![StdFnParam::Defined(Type::String), StdFnParam::Multi],
+            return_type: Type::Int,
+        };
+        std_map.insert("stdio.h".to_string(), vec![printf]);
+        let mut symast = SymAst {
+            std_map,
+            identifier_map: HashMap::new(),
+            root_node: Box::new(SymAstNode::Body(Vec::new())),
+            setup: true,
+        };
+        let program_block = symast.read_block(0, &tlines);
+        symast.root_node = Box::new(SymAstNode::Body(program_block));
+        // Go through tokens and add to tree
         return symast;
     }
 }
@@ -168,8 +228,5 @@ fn get_type(raw: &String) -> Option<Type> {
         "int" => Some(Type::Int),
         // Todo, too tired rn lol, just want hello world to work
         _ => None,
-    }
+    };
 }
-
-
-
