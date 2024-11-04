@@ -1,0 +1,23 @@
+(Program)
+└── (Include) "<stdio.h>"
+└── (FunctionDefinition)
+    ├── (TypeSpecifier) "int"
+    ├── (FunctionName) "main"
+    ├── (ParameterList) "()"
+    └── (Body)
+        ├── (Declaration)
+        │   ├── (TypeSpecifier) "int"
+        │   ├── (VariableName) "result"
+        │   └── (Assignment)
+        │       ├── (Variable) "result"
+        │       └── (BinaryExpression)
+        │           ├── (Constant) 1
+        │           └── (Operator) "+"
+        │           └── (Constant) 2
+        ├── (FunctionCall)
+        │   ├── (FunctionName) "printf"
+        │   └── (Arguments)
+        │       ├── (FormatString) "%d\n"
+        │       └── (Variable) "result"
+        └── (ReturnStatement)
+            └── (Constant) 0
