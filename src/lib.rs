@@ -63,10 +63,11 @@ pub enum SymAstNode {
     Constant(ConstantVal),
     // Operations
     BinaryExpression {
-        // Must be identifier or constant
+        /// Must be identifier, constant or BinaryExpression (for nested operations)
         operands: [NChild; 2],
         // Must not be unary or special operator
         operator: Operator,
+        parenthesized: bool,
     },
     UnaryExpression {
         // Must be identifier
@@ -81,6 +82,7 @@ pub enum SymAstNode {
         identifier_type: Identifier,
         name: String,
     },
+    Assignment {},
 }
 
 enum Identifier {
@@ -125,10 +127,11 @@ impl SymAst {
     pub fn read_block(&mut self, block_start: usize, tlines: &Vec<Vec<Token>>) -> Vec<NChild> {
         let mut block_lines = Vec::new();
         let mut block_end = false;
-        for li in block_start..tlines.len() {
+        let mut li = block_start;
+        while li < tlines.len() {
             let line = &tlines[li];
             if line.len() == 0 {
-                continue;
+                panic!("Do ur job lexer!!!");
             }
             if self.setup && line[0].token_type != TokenType::Include {
                 self.setup = false;
@@ -157,7 +160,7 @@ impl SymAst {
                         if line[2].raw == "(".to_string() {
                             // Function def
                             // First get parameter list
-                            let pclose = line.len() - 2;
+                            let pclose = line.len() - 1;
                             let mut plist = Vec::new();
                             for i in (3..pclose).step_by(3) {
                                 let ptype = get_type(&line[i].raw).unwrap();
@@ -167,17 +170,52 @@ impl SymAst {
                                     name: pid.to_string(),
                                 }));
                                 if line[i + 2].raw != ",".to_string() {
-                                    break;
+                                    if line[i + 2].raw == ")".to_string() {
+                                        break;
+                                    } else {
+                                        panic!();
+                                    }
                                 }
                             }
                             // Now define function
+                            let bodyc = self.read_block(li + 1, tlines);
+                            li += bodyc.len();
                             let func = SymAstNode::FunctionDefinition {
                                 type_specifier: Box::new(SymAstNode::Type(t)),
                                 function_name: line[1].raw.clone(),
                                 parameter_list: plist,
-                                body: Box::new(SymAstNode::Body(self.read_block(li + 2, tlines))),
+                                body: Box::new(SymAstNode::Body(bodyc)),
                             };
                             block_lines.push(Box::new(func));
+                        }
+                    } else {
+                        match line[0].raw.as_str() {
+                            // Inner body containing nodes
+                            "while" => {}
+                            "for" => {}
+                            "if" => {}
+                            "else" => {}
+                            // Other
+                            "auto" => {}
+                            "break" => {}
+                            "case" => {}
+                            "const" => {}
+                            "continue" => {}
+                            "default" => {}
+                            "do" => {}
+                            "enum" => {}
+                            "extern" => {}
+                            "goto" => {}
+                            "register" => {}
+                            "return" => {}
+                            "sizeof" => {}
+                            "static" => {}
+                            "struct" => {}
+                            "switch" => {}
+                            "typedef" => {}
+                            "union" => {}
+                            "volatile" => {}
+                            _ => panic!(),
                         }
                     }
                 }
@@ -193,6 +231,7 @@ impl SymAst {
             if block_end {
                 break;
             }
+            li += 1;
         }
         if !block_end {
             panic!();
@@ -220,6 +259,96 @@ impl SymAst {
         // Go through tokens and add to tree
         return symast;
     }
+}
+
+// This is only for binary expressions, unary to be handled seperately
+fn handle_arithmetic(line: &Vec<Token>, op_start: usize, op_end: usize) -> (NChild, usize) {
+    let mut operation = &line[op_start..op_end + 1].to_vec();
+    // First, handle unnesssary parenthesis (int a = (1 + 2) should be handled as if
+    // no parenthesis)
+    // The root node for the operation will always be an operator
+    // Of course remember order of operations, refer to table 2-1 in the c book
+    //
+    // Get left and right operands
+    let mut left = None;
+    let mut right = None;
+    let mut c_operator;
+    let top_opi;
+    (c_operator, top_opi) = get_highest_op(&operation);
+    let mut cur_operation = None;
+    let mut i = 0;
+    while i < operation.len() {
+        let token = &operation[i];
+        if token.raw.as_str() == "(" {
+            // Find matching closing paren, then recursively call function to
+            // get ParenExpr
+            let mut paren_id = 1;
+            let mut p_match = 0;
+            for t in operation.iter().skip(1) {
+                match t.raw.as_str() {
+                    "(" => paren_id += 1,
+                    ")" => paren_id -= 1,
+                    _ => {}
+                }
+                if paren_id == 0 {
+                    break;
+                } else {
+                    p_match += 1;
+                }
+            }
+            cur_operation = Some(handle_arithmetic(line, i + 1, p_match).0);
+            i += p_match;
+        } else {
+            // need to process single vals and operators
+        }
+        let is_right = i > top_opi;
+        if left.is_none() {
+            left = cur_operation.take();
+        } else if right.is_none() && is_right {
+            right = cur_operation.take();
+        } else {
+            // Handle multi expression left / right operands
+            if !is_right {
+                let mut lop = left.take().unwrap();
+                match lop.as_mut() {
+                    SymAstNode::BinaryExpression {
+                        operands,
+                        operator,
+                        parenthesized,
+                    } => {
+                        if *parenthesized {
+                            left = Some(Box::new(SymAstNode::BinaryExpression {
+                                operands: [lop, cur_operation.take().unwrap()],
+                                operator: string_to_operator(&c_operator.take().unwrap()),
+                                parenthesized: false,
+                            }));
+                        }
+                    }
+                    _ => {}
+                }
+            }
+        }
+        i += 1;
+    }
+    todo!();
+}
+
+fn get_highest_op(operation: &Vec<Token>) -> (Option<String>, usize) {
+    todo!();
+}
+
+fn string_to_operator(raw: &String) -> Operator {
+    todo!();
+}
+
+fn get_operator_presidence(op: &String) -> usize {
+    return match op.as_str() {
+        "*" | "/" | "%" => 2,
+        "+" | "-" => 3,
+        "<<" | ">>" => 4,
+        "<" | "<=" | ">" | ">=" => 5,
+        _ => panic!(),
+    };
 }
 
 fn get_type(raw: &String) -> Option<Type> {

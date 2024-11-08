@@ -5,3 +5,4 @@ edition = "2021"
 
 [dependencies]
 dekatron = {path = "../dekatron/"}
+strum_macros = "0.26"
