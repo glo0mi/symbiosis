@@ -1,4 +1,5 @@
 mod keywordz;
+use core::panic;
 use std::collections::HashMap;
 
 use keywordz::*;
@@ -85,6 +86,7 @@ pub enum SymAstNode {
     Assignment {},
 }
 
+#[derive(Clone)]
 enum Identifier {
     Variable(Type),
     /// Contains the return type
@@ -257,79 +259,74 @@ impl SymAst {
         let program_block = symast.read_block(0, &tlines);
         symast.root_node = Box::new(SymAstNode::Body(program_block));
         // Go through tokens and add to tree
-        return symast;
+        symast
     }
 }
 
 // This is only for binary expressions, unary to be handled seperately
-fn handle_arithmetic(line: &Vec<Token>, op_start: usize, op_end: usize) -> (NChild, usize) {
-    let mut operation = &line[op_start..op_end + 1].to_vec();
-    // First, handle unnesssary parenthesis (int a = (1 + 2) should be handled as if
-    // no parenthesis)
-    // The root node for the operation will always be an operator
-    // Of course remember order of operations, refer to table 2-1 in the c book
-    //
-    // Get left and right operands
-    let mut left = None;
-    let mut right = None;
-    let mut c_operator;
-    let top_opi;
-    (c_operator, top_opi) = get_highest_op(&operation);
-    let mut cur_operation = None;
-    let mut i = 0;
-    while i < operation.len() {
-        let token = &operation[i];
-        if token.raw.as_str() == "(" {
-            // Find matching closing paren, then recursively call function to
-            // get ParenExpr
-            let mut paren_id = 1;
-            let mut p_match = 0;
-            for t in operation.iter().skip(1) {
-                match t.raw.as_str() {
-                    "(" => paren_id += 1,
-                    ")" => paren_id -= 1,
-                    _ => {}
-                }
-                if paren_id == 0 {
-                    break;
-                } else {
-                    p_match += 1;
-                }
-            }
-            cur_operation = Some(handle_arithmetic(line, i + 1, p_match).0);
-            i += p_match;
+fn handle_arithmetic(
+    line: &Vec<Token>,
+    op_start: usize,
+    op_end: usize,
+    ast: &SymAst,
+) -> (NChild, usize) {
+    // Gonna retry this because v1 was melting my brain
+    // I think a good way to do this is to first get the operator with the highest
+    // presidence in the paren scope and create 2 slices with the op as the middle,
+    // even if the operands are singular. If get_highest_op returns none, and the operand
+    // if not parenthisezed just instantly return the value.
+    // If get_highest_op returns Some, you can be certain it in not parenthesized
+    // in the current scope
+    let (top_op_option, op_index) = get_highest_op(line);
+    if let Some(top_op) = top_op_option {
+        let left = line[op_start..op_index].to_vec();
+        let right = line[op_index + 1..op_end].to_vec();
+        let op = parse_operator(top_op.as_str());
+        let operation = SymAstNode::BinaryExpression {
+            operands: [
+                handle_arithmetic(&left, 0, left.len(), ast).0,
+                handle_arithmetic(&right, 0, right.len(), ast).0,
+            ],
+            operator: op,
+            parenthesized: false,
+        };
+        (Box::new(operation), op_end + 1)
+    } else {
+        // No operator, check if operand is parenthesized
+        let operand = &line[op_start];
+        if operand.raw.as_str() == "(" {
+            // If parenthesized, recursively call fn on the inner expression
+            handle_arithmetic(line, op_start + 1, op_end - 1, ast)
         } else {
-            // need to process single vals and operators
-        }
-        let is_right = i > top_opi;
-        if left.is_none() {
-            left = cur_operation.take();
-        } else if right.is_none() && is_right {
-            right = cur_operation.take();
-        } else {
-            // Handle multi expression left / right operands
-            if !is_right {
-                let mut lop = left.take().unwrap();
-                match lop.as_mut() {
-                    SymAstNode::BinaryExpression {
-                        operands,
-                        operator,
-                        parenthesized,
-                    } => {
-                        if *parenthesized {
-                            left = Some(Box::new(SymAstNode::BinaryExpression {
-                                operands: [lop, cur_operation.take().unwrap()],
-                                operator: string_to_operator(&c_operator.take().unwrap()),
-                                parenthesized: false,
-                            }));
-                        }
+            // If not parenthesized, operand is unary
+            match operand.token_type {
+                TokenType::Identifier => {
+                    let idt = ast.identifier_map.get(&operand.raw);
+                    // Check if identifier is in the identifier map, if not,
+                    // variable does not exist
+                    if let Some(identifier) = idt {
+                        (
+                            Box::new(SymAstNode::Identifier {
+                                identifier_type: identifier.clone(),
+                                name: operand.raw.clone(),
+                            }),
+                            op_end,
+                        )
+                    } else {
+                        println!("{} is not a variable!", operand.raw);
+                        panic!()
                     }
-                    _ => {}
                 }
+                TokenType::Constant(cv) => {
+                    (Box::new(SymAstNode::Constant(get_constant_val(cv))), op_end)
+                }
+                _ => panic!(),
             }
         }
-        i += 1;
     }
+}
+
+fn get_constant_val(value: Constant) -> ConstantVal {
     todo!();
 }
 
@@ -353,9 +350,9 @@ fn get_operator_presidence(op: &String) -> usize {
 
 fn get_type(raw: &String) -> Option<Type> {
     let raw = raw.as_str();
-    return match raw {
+    match raw {
         "int" => Some(Type::Int),
         // Todo, too tired rn lol, just want hello world to work
         _ => None,
-    };
+    }
 }
