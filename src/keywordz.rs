@@ -87,6 +87,10 @@ pub enum Operator {
     Assignment(AssignmentOp),
 }
 
+pub fn parse_operator(op_raw: &str) -> Operator {
+    todo!();
+}
+
 pub enum ControlFlow {
     // Child must be parenthesized expression
     If {

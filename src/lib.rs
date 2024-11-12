@@ -23,7 +23,7 @@ pub enum ConstantVal {
 }
 
 #[derive(PartialEq, Eq, Debug, Clone, Copy)]
-enum Type {
+pub enum Type {
     String,
     Character,
     // Numeric types
@@ -87,7 +87,7 @@ pub enum SymAstNode {
 }
 
 #[derive(Clone)]
-enum Identifier {
+pub enum Identifier {
     Variable(Type),
     /// Contains the return type
     Function(Option<Type>),
@@ -132,7 +132,7 @@ impl SymAst {
         let mut li = block_start;
         while li < tlines.len() {
             let line = &tlines[li];
-            if line.len() == 0 {
+            if line.is_empty() {
                 panic!("Do ur job lexer!!!");
             }
             if self.setup && line[0].token_type != TokenType::Include {
@@ -148,7 +148,7 @@ impl SymAst {
                         if stdfn.return_type == Type::Void {
                             rt = None;
                         } else {
-                            rt = Some(stdfn.return_type.clone());
+                            rt = Some(stdfn.return_type);
                         }
                         self.identifier_map
                             .insert(stdfn.identifier.clone(), Identifier::Function(rt))
@@ -159,7 +159,7 @@ impl SymAst {
                     if let Some(t) = get_type(&line[0].raw) {
                         // This is either a function def or variable def
                         // Token 3 will be open paren if function and open bracket if array
-                        if line[2].raw == "(".to_string() {
+                        if line[2].raw == *"(" {
                             // Function def
                             // First get parameter list
                             let pclose = line.len() - 1;
@@ -171,8 +171,8 @@ impl SymAst {
                                     identifier_type: Identifier::Variable(ptype),
                                     name: pid.to_string(),
                                 }));
-                                if line[i + 2].raw != ",".to_string() {
-                                    if line[i + 2].raw == ")".to_string() {
+                                if line[i + 2].raw != *"," {
+                                    if line[i + 2].raw == *")" {
                                         break;
                                     } else {
                                         panic!();
@@ -238,7 +238,7 @@ impl SymAst {
         if !block_end {
             panic!();
         }
-        return block_lines;
+        block_lines
     }
     pub fn initialize_symast(tlines: Vec<Vec<Token>>) -> Self {
         let mut std_map = HashMap::new();
@@ -327,29 +327,57 @@ fn handle_arithmetic(
 }
 
 fn get_constant_val(value: Constant) -> ConstantVal {
+    match value {
+        Constant::Integer(suffix) => {}
+        Constant::Float(suffix) => {}
+        Constant::Octal(suffix) => {}
+        Constant::Hexadecimal(suffix) => {}
+        Constant::Character => {}
+        Constant::String => {}
+    }
     todo!();
 }
 
-fn get_highest_op(operation: &Vec<Token>) -> (Option<String>, usize) {
+fn get_highest_op(operation: &[Token]) -> (Option<String>, usize) {
+    let mut highest_op = 0;
+    let mut highest_pres = 0;
+    let mut op_symb: Option<String> = None;
+    let mut paren_scope = 0;
+    for (i, t) in operation.iter().enumerate() {
+        if t.raw.as_str() == "(" {
+            paren_scope += 1;
+        } else if t.raw.as_str() == ")" {
+            paren_scope -= 1;
+        }
+        if paren_scope == 0 {
+            if let TokenType::Operator(_op) = t.token_type {
+                let op_pres = get_operator_presidence(t.raw.as_str());
+                if op_pres >= highest_pres {
+                    highest_op = i;
+                    highest_pres = op_pres;
+                    op_symb = Some(t.raw.clone());
+                }
+            }
+        }
+    }
+    (op_symb, highest_op)
+}
+
+fn string_to_operator(raw: &str) -> Operator {
     todo!();
 }
 
-fn string_to_operator(raw: &String) -> Operator {
-    todo!();
-}
-
-fn get_operator_presidence(op: &String) -> usize {
-    return match op.as_str() {
+fn get_operator_presidence(op: &str) -> usize {
+    match op {
         "*" | "/" | "%" => 2,
         "+" | "-" => 3,
         "<<" | ">>" => 4,
         "<" | "<=" | ">" | ">=" => 5,
         _ => panic!(),
-    };
+    }
 }
 
-fn get_type(raw: &String) -> Option<Type> {
-    let raw = raw.as_str();
+fn get_type(raw: &str) -> Option<Type> {
     match raw {
         "int" => Some(Type::Int),
         // Todo, too tired rn lol, just want hello world to work
